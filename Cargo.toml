@@ -1,0 +1,13 @@
+[package]
+name = "maa-snp-attest"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+reqwest = { version = "0.11", features = ["json", "blocking"] }
+serde_with = {version = "2.3", features = ["base64"]}
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+base64 = "0"
