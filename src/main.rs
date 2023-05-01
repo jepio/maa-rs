@@ -1,9 +1,22 @@
+#![allow(dead_code)]
+
+use anyhow::{Context, anyhow};
+use jsonwebtoken::{decode, Validation, Algorithm};
+use jsonwebtoken::jwk::JwkSet;
+use std::collections::HashMap;
+use std::io::prelude::*;
 use reqwest::blocking::Response;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use serde_with::base64::{Base64, UrlSafe};
 use serde_with::formats::{Unpadded};
-use base64::{engine, Engine};
+use sev::firmware::host::types::Indeterminate::{Known, Unknown};
+use sev::firmware::guest::types::AttestationReport;
+use base64::{Engine as _};
+use base64;
+use sha2::{Sha256, Digest};
+
+mod amd_kds;
 
 const MAA_URL: &str = "https://maajepio.eus.attest.azure.net";
 
@@ -19,12 +32,37 @@ struct MAACerts {
     keys : Vec<MaaCert>,
 }
 
-fn fetch_certs() -> Result<MAACerts, Box<dyn std::error::Error>> {
-    let resp = reqwest::blocking::get(MAA_URL.to_string() + "/certs")?;
-    let maacerts : MAACerts = resp.json()?;
-    Ok(maacerts)
+struct MAACertSet {
+    certs : HashMap<String, jsonwebtoken::DecodingKey>,
 }
 
+fn fetch_cert_set() -> Result<MAACertSet, Box<dyn std::error::Error>> {
+    let resp = reqwest::blocking::get(MAA_URL.to_string() + "/certs")?;
+    let certs : MAACerts = resp.json()?;
+    let mut certmap = HashMap::new();
+    for cert in certs.keys.iter() {
+        let cert_b64 = cert.x5c[0].as_bytes();
+        let cert_der = base64::engine::general_purpose::STANDARD.decode(cert_b64).unwrap();
+        let x509 = openssl::x509::X509::from_der(&cert_der[..])?;
+        let pubkey = x509.public_key()?;
+        let kty = cert.kty.as_str();
+        match kty {
+            "RSA" => {
+                let rsapubkey = pubkey.rsa()?;
+                let e = rsapubkey.e().to_vec();
+                let n = rsapubkey.n().to_vec();
+                let key = jsonwebtoken::DecodingKey::from_rsa_raw_components(&n, &e);
+                certmap.insert(cert.kid.clone(), key);
+            },
+            _ => {
+                return Err(Box::from(anyhow!("Unsupported key type: {}", kty)));
+            }
+        }
+    }
+    Ok(MAACertSet { certs: certmap })
+}
+
+#[allow(non_snake_case)]
 #[serde_as]
 #[derive(Serialize, Debug)]
 struct MAASnpReport {
@@ -39,6 +77,7 @@ enum MAARuntimeDataType {
     Binary,
 }
 
+#[allow(non_snake_case)]
 #[serde_as]
 #[derive(Serialize, Debug)]
 struct MAARuntimeData {
@@ -47,6 +86,7 @@ struct MAARuntimeData {
     dataType: MAARuntimeDataType,
 }
 
+#[allow(non_snake_case)]
 #[serde_as]
 #[derive(Serialize, Debug)]
 struct MAASnpAttestRequest {
@@ -75,21 +115,84 @@ fn create_maa_test_request() -> String {
 
 const TEST_REQUEST : &str = include_str!("../test/request.json");
 
-fn attest_snp() -> Result<Response, Box<dyn std::error::Error>> {
+fn amd_kds_fetch_chain(snp_report: &AttestationReport) -> Result<String, Box<dyn std::error::Error>> {
+    let certchain = {
+        let certchain = amd_kds::get_cert_chain()?;
+        let vcek: amd_kds::Vcek = amd_kds::get_vcek(&snp_report)?;
+        // convert X509 to PEM string
+        let mut certchain_str = String::new();
+        for cert in [vcek.0, certchain.ask, certchain.ark] {
+            let v = cert.to_pem()?;
+            certchain_str.push_str(String::from_utf8(v)?.as_str());
+        }
+        certchain_str
+    };
+    Ok(certchain)
+}
+
+fn attest_snp(reportdata: &str) -> Result<Response, Box<dyn std::error::Error>> {
+    let mut hasher = Sha256::new();
+    hasher.update(reportdata.as_bytes());
+    let hash = hasher.finalize();
+    let mut arr : [u8; 64] = [0; 64];
+    // set the first 32 bytes to the hash
+    arr[..32].copy_from_slice(&hash[..]);
+    println!("arr: {:?}", arr);
+    let mut firmware = sev::firmware::guest::Firmware::open()?;
+    let snp_report_req = sev::firmware::guest::types::SnpReportReq::new(Some(arr), 0);
+    let snp_report_res= firmware.snp_get_report(None, snp_report_req);
+    let snp_report_res: Result<AttestationReport, Box<dyn std::error::Error>> = snp_report_res.map_err(|e|
+        match e {
+            Known(err) => Box::from(err),
+            Unknown => Box::from("Unknown error"),
+        }
+    );
+    let snp_report = snp_report_res?;
+    let certchain = std::fs::read_to_string(sev::cached_chain::home().unwrap()).or_else(|_| {
+        let path = sev::cached_chain::home().unwrap();
+        match amd_kds_fetch_chain(&snp_report) {
+            Ok(certchain) => {
+                let mut file = std::fs::File::create(path.clone()).context(format!("create {}", path.display()))?;
+                file.write_all(certchain.as_bytes())?;
+                Ok(certchain)
+            },
+            Err(e) => Err(anyhow!(format!("failed to write {}: {:?}", path.display(), e))),
+        }
+    })?;
+    let snp_report_str = bincode::serialize(&snp_report)?;
+    let maasnpreport = MAASnpReport{
+        SnpReport: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&snp_report_str),
+        VcekCertChain: certchain,
+    };
+    let maa_req = MAASnpAttestRequest{
+        report: serde_json::to_string(&maasnpreport).unwrap(),
+        runtimeData: MAARuntimeData{
+            data: reportdata.to_string(),
+            dataType: MAARuntimeDataType::JSON,
+        },
+        nonce: "nonce".to_string(),
+    };
     let client = reqwest::blocking::Client::new();
     let resp = client
         .post(MAA_URL.to_string() + "/attest/SevSnpVm?api-version=2022-08-01")
         .header("Content-Type", "application/json")
-        .body(create_maa_test_request())
+        .json(&maa_req)
         .send()?;
     Ok(resp)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>>{
-//    let certs = fetch_certs()?;
-//    println!("certs: {:?}", certs);
-    let resp = attest_snp()?;
+    let certset= fetch_cert_set()?;
+    let resp = attest_snp("{\"runtimedata\": 1}")?;
     println!("resp: {:?}", resp.status());
-    println!("resp: {}", resp.text()?);
+    let body = resp.json::<HashMap<String, String>>()?;
+    println!("resp: {}", serde_json::to_value(&body)?);
+    let token = body.get("token").unwrap();
+    let header = jsonwebtoken::decode_header(&token)?;
+    println!("token: {}", serde_json::to_value(&header)?);
+    let kid = header.kid.unwrap();
+    let cert = certset.certs.get(&kid).unwrap();
+    let token = decode::<serde_json::Value>(token, cert, &Validation::new(Algorithm::RS256))?;
+    println!("token: {}", serde_json::to_string(&token.claims)?);
     Ok(())
 }

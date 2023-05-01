@@ -11,3 +11,11 @@ serde_with = {version = "2.3", features = ["base64"]}
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 base64 = "0"
+sev = { git = "https://github.com/virtee/sev.git", rev = "7d71f776a165987cbb3a2fbe24e364f904a7e195" }
+ureq = "2"
+thiserror = "1"
+openssl = "0.10"
+anyhow = "1"
+bincode = "1"
+jsonwebtoken = "8"
+sha2 = "0.10"
