@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
 use anyhow::{Context, anyhow};
-use jsonwebtoken::{decode, Validation, Algorithm};
-use jsonwebtoken::jwk::JwkSet;
+use jsonwebtoken::{decode, Validation, Algorithm, DecodingKey};
+use jsonwebtoken::jwk::{JwkSet, Jwk};
 use std::collections::HashMap;
 use std::io::prelude::*;
 use reqwest::blocking::Response;
@@ -32,14 +32,23 @@ struct MAACerts {
     keys : Vec<MaaCert>,
 }
 
-struct MAACertSet {
-    certs : HashMap<String, jsonwebtoken::DecodingKey>,
+// MAA provides a JWK which is missing some fields for interoperability
+#[derive(Deserialize, Debug, Serialize)]
+struct MAAJwk {
+    kid : String,
+    kty : String,
+    e : String,
+    n : String,
+    x5c: Vec<String>,
+    #[serde(rename(serialize = "use"))]
+    keyuse : String,
+    alg : String,
 }
 
-fn fetch_cert_set() -> Result<MAACertSet, Box<dyn std::error::Error>> {
+fn fetch_cert_set() -> Result<JwkSet, Box<dyn std::error::Error>> {
     let resp = reqwest::blocking::get(MAA_URL.to_string() + "/certs")?;
     let certs : MAACerts = resp.json()?;
-    let mut certmap = HashMap::new();
+    let mut jwkset = Vec::<Jwk>::default();
     for cert in certs.keys.iter() {
         let cert_b64 = cert.x5c[0].as_bytes();
         let cert_der = base64::engine::general_purpose::STANDARD.decode(cert_b64).unwrap();
@@ -51,15 +60,27 @@ fn fetch_cert_set() -> Result<MAACertSet, Box<dyn std::error::Error>> {
                 let rsapubkey = pubkey.rsa()?;
                 let e = rsapubkey.e().to_vec();
                 let n = rsapubkey.n().to_vec();
-                let key = jsonwebtoken::DecodingKey::from_rsa_raw_components(&n, &e);
-                certmap.insert(cert.kid.clone(), key);
+                let maajwk = MAAJwk{
+                    kid: cert.kid.clone(),
+                    kty: cert.kty.clone(),
+                    e: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(e),
+                    n: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(n),
+                    x5c: cert.x5c.clone(),
+                    keyuse: "sig".to_string(),
+                    alg: "RS256".to_string(),
+                };
+                // convert MAAJwk to Jwk through json intermediate
+                // representation to make sure we're doing this right
+                let jwkstr = serde_json::to_string(&maajwk)?;
+                let jwk : Jwk = serde_json::from_str(&jwkstr)?;
+                jwkset.push(jwk);
             },
             _ => {
                 return Err(Box::from(anyhow!("Unsupported key type: {}", kty)));
             }
         }
     }
-    Ok(MAACertSet { certs: certmap })
+    Ok(JwkSet{ keys: jwkset })
 }
 
 #[allow(non_snake_case)]
@@ -191,8 +212,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     let header = jsonwebtoken::decode_header(&token)?;
     println!("token: {}", serde_json::to_value(&header)?);
     let kid = header.kid.unwrap();
-    let cert = certset.certs.get(&kid).unwrap();
-    let token = decode::<serde_json::Value>(token, cert, &Validation::new(Algorithm::RS256))?;
+    let cert = certset.find(&kid).unwrap();
+    let alg = cert.common.algorithm.ok_or(anyhow!("Get jwk alg failed"))?;
+    let dkey = DecodingKey::from_jwk(cert)?;
+    let token = decode::<serde_json::Value>(token, &dkey, &Validation::new(alg))?;
     println!("token: {}", serde_json::to_string(&token.claims)?);
     Ok(())
 }
