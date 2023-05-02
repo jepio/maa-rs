@@ -4,8 +4,8 @@
 use anyhow::{anyhow, Context};
 use openssl::x509::X509;
 use sev::firmware::guest::types::AttestationReport;
-use thiserror::Error;
 use std::io::prelude::*;
+use thiserror::Error;
 
 const KDS_CERT_SITE: &str = "https://kdsintf.amd.com";
 const KDS_VCEK: &str = "/vcek/v1";
@@ -80,10 +80,12 @@ fn get_vcek(report: &AttestationReport) -> Result<Vcek, AmdKdsError> {
     Ok(vcek)
 }
 
-pub fn fetch_vcek_chain(snp_report: &AttestationReport) -> Result<String, Box<dyn std::error::Error>> {
+pub fn fetch_vcek_chain(
+    snp_report: &AttestationReport,
+) -> Result<String, Box<dyn std::error::Error>> {
     let certchain = {
         let certchain = get_cert_chain()?;
-        let vcek = get_vcek(&snp_report)?;
+        let vcek = get_vcek(snp_report)?;
         // convert X509 to PEM string
         let mut certchain_str = String::new();
         for cert in [vcek.0, certchain.ask, certchain.ark] {
@@ -95,16 +97,19 @@ pub fn fetch_vcek_chain(snp_report: &AttestationReport) -> Result<String, Box<dy
     Ok(certchain)
 }
 
-pub fn fetch_cached_vcek_chain(snp_report: &AttestationReport) -> Result<String, Box<dyn std::error::Error>> {
+pub fn fetch_cached_vcek_chain(
+    snp_report: &AttestationReport,
+) -> Result<String, Box<dyn std::error::Error>> {
     let certchain = std::fs::read_to_string(sev::cached_chain::home().unwrap());
     let certchain = certchain.or_else(|_| {
         let path = sev::cached_chain::home().unwrap();
-        match fetch_vcek_chain(&snp_report) {
+        match fetch_vcek_chain(snp_report) {
             Ok(certchain) => {
-                let mut file = std::fs::File::create(path.clone()).context(format!("create {} (run mkdir manually)", path.display()))?;
+                let mut file = std::fs::File::create(path.clone())
+                    .context(format!("create {} (run mkdir manually)", path.display()))?;
                 file.write_all(certchain.as_bytes())?;
                 Ok(certchain)
-            },
+            }
             Err(e) => Err(anyhow!(format!("failed to fetch vcek {:?}", e))),
         }
     })?;
