@@ -34,7 +34,7 @@ mod tests {
 
     fn create_maa_test_request() -> MAASnpAttestRequest {
         let report = MAASnpReport{
-                SnpReport: include_str!("../test/SnpReport").to_string(),
+                SnpReport: include_bytes!("../test/SnpReport").to_vec(),
                 VcekCertChain: include_str!("../test/VcekCertChain").to_string(),
         };
         let report_json = serde_json::to_string(&report).unwrap();

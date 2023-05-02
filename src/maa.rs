@@ -20,7 +20,8 @@ use sev::firmware::guest::types::AttestationReport;
 #[serde_as]
 #[derive(Serialize, Debug)]
 pub struct MAASnpReport {
-    pub SnpReport : String,
+    #[serde_as(as = "Base64<UrlSafe, Unpadded>")]
+    pub SnpReport : Vec<u8>,
     #[serde_as(as = "Base64<UrlSafe, Unpadded>")]
     pub VcekCertChain : String,
 }
@@ -145,7 +146,7 @@ pub fn gather_snp_evidence(reportdata: &[u8]) -> Result<MAASnpReport, Box<dyn st
     let certchain = crate::amd_kds::fetch_cached_vcek_chain(&snp_report)?;
     let snp_report_str = bincode::serialize(&snp_report)?;
     let maasnpreport = MAASnpReport{
-        SnpReport: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&snp_report_str),
+        SnpReport: snp_report_str,
         VcekCertChain: certchain,
     };
     Ok(maasnpreport)
