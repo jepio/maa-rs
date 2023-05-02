@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use jsonwebtoken::jwk::Jwk;
 use jsonwebtoken::{DecodingKey, TokenData, Validation};
 
@@ -7,6 +7,7 @@ use serde_with::base64::{Base64, UrlSafe};
 use serde_with::formats::Unpadded;
 use serde_with::serde_as;
 use std::collections::HashMap;
+use std::fs;
 
 use base64::Engine as _;
 use jsonwebtoken::jwk::JwkSet;
@@ -80,6 +81,20 @@ impl MAA {
         let certs = fetch_cert_set(url)?;
         Ok(Self {
             certs: Some(certs),
+            url: url.to_string(),
+        })
+    }
+
+    // Prefetch the certificates on the verifier side:
+    // $ curl https://<url>/certs -o <filename>
+    pub fn new_verifier_from_file(
+        url: &str,
+        filename: &str,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let certs = fs::read_to_string(filename).context(format!("failed to read '{}'", filename))?;
+        let certs: MAACerts = serde_json::from_str(&certs).context(format!("failed to parse '{}'", filename))?;
+        Ok(Self {
+            certs: Some(certs.try_into()?),
             url: url.to_string(),
         })
     }
@@ -214,34 +229,42 @@ fn fetch_cert_set(url: &str) -> Result<JwkSet, Box<dyn std::error::Error>> {
         return Err(Box::from(anyhow!("HTTP error {:?}", resp)));
     }
     let certs: MAACerts = resp.json()?;
-    let mut jwkset = Vec::<Jwk>::default();
-    for mut cert in certs.keys.into_iter() {
-        let cert_b64 = cert.x5c[0].as_bytes();
-        let cert_der = base64::engine::general_purpose::STANDARD
-            .decode(cert_b64)
-            .unwrap();
-        let x509 = openssl::x509::X509::from_der(&cert_der[..])?;
-        let pubkey = x509.public_key()?;
-        let kty = cert.kty.as_str();
-        match kty {
-            "RSA" => {
-                let rsapubkey = pubkey.rsa()?;
-                let e = rsapubkey.e().to_vec();
-                let n = rsapubkey.n().to_vec();
-                cert.e = Some(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(e));
-                cert.n = Some(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(n));
-                cert.keyuse = Some("sig".to_string());
-                cert.alg = Some("RS256".to_string());
-                // convert MAAJwk to Jwk through json intermediate
-                // representation to make sure we're doing this right
-                let jwkstr = serde_json::to_string(&cert)?;
-                let jwk: Jwk = serde_json::from_str(&jwkstr)?;
-                jwkset.push(jwk);
-            }
-            _ => {
-                return Err(Box::from(anyhow!("Unsupported key type: {}", kty)));
+    let jwkset = JwkSet::try_from(certs);
+    jwkset
+}
+
+impl TryFrom<MAACerts> for JwkSet {
+    type Error = Box<dyn std::error::Error>;
+    fn try_from(certs: MAACerts) -> Result<Self, Self::Error> {
+        let mut jwkset = Vec::<Jwk>::default();
+        for mut cert in certs.keys.into_iter() {
+            let cert_b64 = cert.x5c[0].as_bytes();
+            let cert_der = base64::engine::general_purpose::STANDARD
+                .decode(cert_b64)
+                .unwrap();
+            let x509 = openssl::x509::X509::from_der(&cert_der[..])?;
+            let pubkey = x509.public_key()?;
+            let kty = cert.kty.as_str();
+            match kty {
+                "RSA" => {
+                    let rsapubkey = pubkey.rsa()?;
+                    let e = rsapubkey.e().to_vec();
+                    let n = rsapubkey.n().to_vec();
+                    cert.e = Some(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(e));
+                    cert.n = Some(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(n));
+                    cert.keyuse = Some("sig".to_string());
+                    cert.alg = Some("RS256".to_string());
+                    // convert MAAJwk to Jwk through json intermediate
+                    // representation to make sure we're doing this right
+                    let jwkstr = serde_json::to_string(&cert)?;
+                    let jwk: Jwk = serde_json::from_str(&jwkstr)?;
+                    jwkset.push(jwk);
+                }
+                _ => {
+                    return Err(Box::from(anyhow!("Unsupported key type: {}", kty)));
+                }
             }
         }
+        Ok(JwkSet { keys: jwkset })
     }
-    Ok(JwkSet { keys: jwkset })
 }
