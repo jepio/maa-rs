@@ -1,6 +1,9 @@
 use anyhow::anyhow;
+use jsonwebtoken::{TokenData, DecodingKey, decode, Validation};
 use jsonwebtoken::jwk::Jwk;
 use reqwest;
+use serde::de::DeserializeOwned;
+use std::collections::HashMap;
 use std::io::prelude;
 use jsonwebtoken::jwk::JwkSet;
 use serde::{Deserialize, Serialize};
@@ -46,6 +49,33 @@ impl MAA {
     pub fn find(&self, kid: &str) -> Option<&Jwk> {
         self.certs.as_ref().map(|certs| certs.find(kid)).flatten()
     }
+
+    pub fn raw_request(&self, path: &str, body: &str) -> Result<String, Box<dyn std::error::Error>> {
+        let client = reqwest::blocking::Client::new();
+        let resp = client
+            .post(self.url.to_string() + path)
+            .header("Content-Type", "application/json")
+            .body(body.to_string())
+            .send()?;
+        if !resp.status().is_success() {
+            return Err(Box::from(anyhow!("HTTP error {:?}", resp)));
+        }
+        let resp = resp.json::<HashMap<String, String>>()?;
+        let token = resp.get("token").ok_or(anyhow!("token not found"))?;
+        Ok(token.to_string())
+    }
+
+    pub fn verify<Claims: DeserializeOwned>(&self, token: &str) -> Result<TokenData<Claims>, Box<dyn std::error::Error>>
+    {
+        let header = jsonwebtoken::decode_header(token)?;
+        let kid = header.kid.ok_or(anyhow!("kid not found"))?;
+        let cert = self.find(&kid).ok_or(anyhow!("cert not found"))?;
+        let alg = cert.common.algorithm.ok_or(anyhow!("Get jwk alg failed"))?;
+        let dkey = DecodingKey::from_jwk(cert)?;
+        let token_data = jsonwebtoken::decode::<Claims>(token, &dkey, &Validation::new(alg))?;
+        Ok(token_data)
+    }
+
 }
 
 fn fetch_jwks_uri(url: &str) -> Result<String, Box<dyn std::error::Error>> {
