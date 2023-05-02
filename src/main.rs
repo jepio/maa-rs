@@ -71,12 +71,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     let token = attest_snp(&maa, "{\"runtimedata\": 1}")?;
     let header = jsonwebtoken::decode_header(&token)?;
     println!("token: {}", serde_json::to_value(&header)?);
-    let kid = header.kid.unwrap();
-    let cert = maa.find(&kid).unwrap();
-    let alg = cert.common.algorithm.ok_or(anyhow!("Get jwk alg failed"))?;
-    let dkey = DecodingKey::from_jwk(cert)?;
-    let token = decode::<serde_json::Value>(&token, &dkey, &Validation::new(alg))?;
-    println!("token: {}", serde_json::to_string(&token.claims)?);
+    let token_data = maa.verify::<serde_json::Value>(&token)?;
+    println!("token_data: {}", serde_json::to_string(&token_data.claims)?);
     Ok(())
 }
 
