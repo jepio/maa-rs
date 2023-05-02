@@ -7,14 +7,13 @@ fn attest_snp(
     reportdata: &str,
     nonce: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let maasnpreport = maa::gather_snp_evidence(reportdata.as_bytes())?;
-    let maa_req = MAASnpAttestRequest {
-        report: serde_json::to_string(&maasnpreport).unwrap(),
-        runtimeData: MAARuntimeData::JSON {
+    let maa_req = MAASnpAttestRequest::new(
+        MAARuntimeData::JSON {
             data: reportdata.to_string(),
         },
-        nonce: nonce.to_string(),
-    };
+        None,
+        Some(nonce),
+    )?;
     maa.attest_sev_snp_vm(maa_req)
 }
 

@@ -8,7 +8,6 @@ use serde_with::formats::Unpadded;
 use serde_with::serde_as;
 use std::collections::HashMap;
 
-
 use base64::Engine as _;
 use jsonwebtoken::jwk::JwkSet;
 use serde::{Deserialize, Serialize};
@@ -139,30 +138,60 @@ impl MAA {
     }
 }
 
-pub fn gather_snp_evidence(reportdata: &[u8]) -> Result<MAASnpReport, Box<dyn std::error::Error>> {
-    let mut hasher = Sha256::new();
-    hasher.update(reportdata);
-    let hash = hasher.finalize();
-    let mut arr: [u8; 64] = [0; 64];
-    // set the first 32 bytes to the hash
-    arr[..32].copy_from_slice(&hash[..]);
+impl MAASnpReport {
+    pub fn new(
+        runtimedata: &MAARuntimeData,
+        vcek_cert_chain: Option<&str>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let reportdata = match runtimedata {
+            MAARuntimeData::JSON { data } => data.as_bytes(),
+            MAARuntimeData::Binary { data } => &data[..],
+        };
+        let mut hasher = Sha256::new();
+        hasher.update(reportdata);
+        let hash = hasher.finalize();
 
-    let mut firmware = sev::firmware::guest::Firmware::open()?;
-    let snp_report_req = sev::firmware::guest::types::SnpReportReq::new(Some(arr), 0);
-    let snp_report_res = firmware.snp_get_report(None, snp_report_req);
-    let snp_report_res: Result<AttestationReport, Box<dyn std::error::Error>> = snp_report_res
-        .map_err(|e| match e {
-            Known(err) => Box::from(err),
-            Unknown => Box::from("Unknown error"),
-        });
-    let snp_report = snp_report_res?;
-    let certchain = crate::amd_kds::fetch_cached_vcek_chain(&snp_report)?;
-    let snp_report_str = bincode::serialize(&snp_report)?;
-    let maasnpreport = MAASnpReport {
-        SnpReport: snp_report_str,
-        VcekCertChain: certchain,
-    };
-    Ok(maasnpreport)
+        let mut arr: [u8; 64] = [0; 64];
+        // set the first 32 bytes to the hash
+        arr[..32].copy_from_slice(&hash[..]);
+
+        let mut firmware = sev::firmware::guest::Firmware::open()?;
+        let snp_report_req = sev::firmware::guest::types::SnpReportReq::new(Some(arr), 0);
+        let snp_report_res = firmware.snp_get_report(None, snp_report_req);
+        let snp_report_res: Result<AttestationReport, Box<dyn std::error::Error>> = snp_report_res
+            .map_err(|e| match e {
+                Known(err) => Box::from(err),
+                Unknown => Box::from("Unknown error"),
+            });
+        let snp_report = snp_report_res?;
+
+        let vcek_cert_chain = match vcek_cert_chain {
+            Some(s) => Ok(s.to_string()),
+            None => crate::amd_kds::fetch_cached_vcek_chain(&snp_report),
+        }?;
+        let snp_report_str = bincode::serialize(&snp_report)?;
+        let maasnpreport = MAASnpReport {
+            SnpReport: snp_report_str,
+            VcekCertChain: vcek_cert_chain,
+        };
+        Ok(maasnpreport)
+    }
+}
+
+impl MAASnpAttestRequest {
+    pub fn new(
+        runtimedata: MAARuntimeData,
+        vcek_cert_chain: Option<&str>,
+        nonce: Option<&str>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let report = MAASnpReport::new(&runtimedata, vcek_cert_chain)?;
+        let maa_req = MAASnpAttestRequest {
+            report: serde_json::to_string(&report)?,
+            runtimeData: runtimedata,
+            nonce: nonce.unwrap_or("").to_string(),
+        };
+        Ok(maa_req)
+    }
 }
 
 fn fetch_jwks_uri(url: &str) -> Result<String, Box<dyn std::error::Error>> {
