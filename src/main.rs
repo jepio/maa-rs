@@ -6,9 +6,8 @@ fn attest_snp(maa : &MAA, reportdata: &str, nonce: &str) -> Result<String, Box<d
     let maasnpreport = maa::gather_snp_evidence(reportdata.as_bytes())?;
     let maa_req = MAASnpAttestRequest{
         report: serde_json::to_string(&maasnpreport).unwrap(),
-        runtimeData: MAARuntimeData{
+        runtimeData: MAARuntimeData::JSON{
             data: reportdata.to_string(),
-            dataType: MAARuntimeDataType::JSON,
         },
         nonce: nonce.to_string(),
     };
@@ -41,9 +40,8 @@ mod tests {
         let report_json = serde_json::to_string(&report).unwrap();
         let request = MAASnpAttestRequest{
             report: report_json,
-            runtimeData: MAARuntimeData{
-                data: include_str!("../test/runtimeData_data").to_string(),
-                dataType: MAARuntimeDataType::JSON,
+            runtimeData: MAARuntimeData::JSON{
+                data: include_str!("../test/runtimeData_data").to_string()
             },
             nonce: "nonce".to_string(),
         };

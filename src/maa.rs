@@ -25,19 +25,19 @@ pub struct MAASnpReport {
     pub VcekCertChain : String,
 }
 
-#[derive(Serialize, Debug)]
-pub enum MAARuntimeDataType {
-    JSON,
-    Binary,
-}
-
 #[allow(non_snake_case)]
 #[serde_as]
 #[derive(Serialize, Debug)]
-pub struct MAARuntimeData {
-    #[serde_as(as = "Base64<UrlSafe, Unpadded>")]
-    pub data: String,
-    pub dataType: MAARuntimeDataType,
+#[serde(tag = "dataType")]
+pub enum MAARuntimeData {
+    JSON{
+        #[serde_as(as = "Base64<UrlSafe, Unpadded>")]
+        data: String
+    },
+    Binary{
+        #[serde_as(as = "Base64<UrlSafe, Unpadded>")]
+        data: Vec<u8>
+    },
 }
 
 #[allow(non_snake_case)]
