@@ -54,25 +54,6 @@ struct MAASnpAttestRequest {
     nonce: String,
 }
 
-fn create_maa_test_request() -> String {
-    let report = MAASnpReport{
-            SnpReport: include_str!("../test/SnpReport").to_string(),
-            VcekCertChain: include_str!("../test/VcekCertChain").to_string(),
-    };
-    let report_json = serde_json::to_string(&report).unwrap();
-    let request = MAASnpAttestRequest{
-        report: report_json,
-        runtimeData: MAARuntimeData{
-            data: include_str!("../test/runtimeData_data").to_string(),
-            dataType: MAARuntimeDataType::JSON,
-        },
-        nonce: "nonce".to_string(),
-    };
-    serde_json::to_string(&request).unwrap()
-}
-
-const TEST_REQUEST : &str = include_str!("../test/request.json");
-
 fn attest_snp(reportdata: &str) -> Result<Response, Box<dyn std::error::Error>> {
     let mut hasher = Sha256::new();
     hasher.update(reportdata.as_bytes());
@@ -140,4 +121,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     let token = decode::<serde_json::Value>(token, &dkey, &Validation::new(alg))?;
     println!("token: {}", serde_json::to_string(&token.claims)?);
     Ok(())
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_REQUEST : &str = include_str!("../test/request.json");
+
+    fn create_maa_test_request() -> String {
+        let report = MAASnpReport{
+                SnpReport: include_str!("../test/SnpReport").to_string(),
+                VcekCertChain: include_str!("../test/VcekCertChain").to_string(),
+        };
+        let report_json = serde_json::to_string(&report).unwrap();
+        let request = MAASnpAttestRequest{
+            report: report_json,
+            runtimeData: MAARuntimeData{
+                data: include_str!("../test/runtimeData_data").to_string(),
+                dataType: MAARuntimeDataType::JSON,
+            },
+            nonce: "nonce".to_string(),
+        };
+        serde_json::to_string(&request).unwrap()
+    }
+    const SHARED_MAA_URL: &str = "https://sharedeus2.eus2.attest.azure.net";
+
+    #[test]
+    fn test_attest_and_verify() -> Result<(), Box<dyn std::error::Error>> {
+        let maa = maa::MAA::new_verifier(SHARED_MAA_URL)?;
+        let endpoint = "/attest/SevSnpVm?api-version=2022-08-01";
+        let req = create_maa_test_request();
+        let token = maa.raw_request(endpoint, &req)?;
+        println!("token: {}", token);
+        let token_data = maa.verify::<serde_json::Value>(&token)?;
+        println!("token_data: {}", serde_json::to_string_pretty(&token_data.claims)?);
+        Ok(())
+    }
+
 }
