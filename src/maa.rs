@@ -8,10 +8,13 @@ use serde_with::base64::{Base64, UrlSafe};
 use serde_with::formats::{Unpadded};
 use std::collections::HashMap;
 use std::io::prelude;
+use sha2::{Sha256, Digest};
 use jsonwebtoken::jwk::JwkSet;
 use serde::{Deserialize, Serialize};
 use base64::{Engine as _};
 use base64;
+use sev::firmware::host::types::Indeterminate::{Known, Unknown};
+use sev::firmware::guest::types::AttestationReport;
 
 #[allow(non_snake_case)]
 #[serde_as]
@@ -119,6 +122,33 @@ impl MAA {
         Ok(token_data)
     }
 
+}
+
+pub fn gather_snp_evidence(reportdata: &[u8]) -> Result<MAASnpReport, Box<dyn std::error::Error>> {
+    let mut hasher = Sha256::new();
+    hasher.update(reportdata);
+    let hash = hasher.finalize();
+    let mut arr : [u8; 64] = [0; 64];
+    // set the first 32 bytes to the hash
+    arr[..32].copy_from_slice(&hash[..]);
+
+    let mut firmware = sev::firmware::guest::Firmware::open()?;
+    let snp_report_req = sev::firmware::guest::types::SnpReportReq::new(Some(arr), 0);
+    let snp_report_res= firmware.snp_get_report(None, snp_report_req);
+    let snp_report_res: Result<AttestationReport, Box<dyn std::error::Error>> = snp_report_res.map_err(|e|
+        match e {
+            Known(err) => Box::from(err),
+            Unknown => Box::from("Unknown error"),
+        }
+    );
+    let snp_report = snp_report_res?;
+    let certchain = crate::amd_kds::fetch_cached_vcek_chain(&snp_report)?;
+    let snp_report_str = bincode::serialize(&snp_report)?;
+    let maasnpreport = MAASnpReport{
+        SnpReport: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&snp_report_str),
+        VcekCertChain: certchain,
+    };
+    Ok(maasnpreport)
 }
 
 fn fetch_jwks_uri(url: &str) -> Result<String, Box<dyn std::error::Error>> {
