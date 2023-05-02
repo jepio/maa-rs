@@ -40,7 +40,7 @@ pub enum AmdKdsError {
 }
 
 /// Retrieve the AMD chain of trust (ASK & ARK) from AMD's KDS
-pub fn get_cert_chain() -> Result<AmdChain, AmdKdsError> {
+fn get_cert_chain() -> Result<AmdChain, AmdKdsError> {
     let url = format!("{KDS_CERT_SITE}{KDS_VCEK}/{SEV_PROD_NAME}/{KDS_CERT_CHAIN}");
     let bytes = get(&url)?;
 
@@ -62,7 +62,7 @@ fn hexify(bytes: &[u8]) -> String {
 }
 
 /// Retrieve a VCEK cert from AMD's KDS, based on an AttestationReport's platform information
-pub fn get_vcek(report: &AttestationReport) -> Result<Vcek, AmdKdsError> {
+fn get_vcek(report: &AttestationReport) -> Result<Vcek, AmdKdsError> {
     let hw_id = hexify(&report.chip_id);
     let url = format!(
         "{KDS_CERT_SITE}{KDS_VCEK}/{SEV_PROD_NAME}/{hw_id}?blSPL={:02}&teeSPL={:02}&snpSPL={:02}&ucodeSPL={:02}",
@@ -76,4 +76,19 @@ pub fn get_vcek(report: &AttestationReport) -> Result<Vcek, AmdKdsError> {
     let cert = X509::from_der(&bytes)?;
     let vcek = Vcek(cert);
     Ok(vcek)
+}
+
+pub fn fetch_vcek_chain(snp_report: &AttestationReport) -> Result<String, Box<dyn std::error::Error>> {
+    let certchain = {
+        let certchain = get_cert_chain()?;
+        let vcek = get_vcek(&snp_report)?;
+        // convert X509 to PEM string
+        let mut certchain_str = String::new();
+        for cert in [vcek.0, certchain.ask, certchain.ark] {
+            let v = cert.to_pem()?;
+            certchain_str.push_str(String::from_utf8(v)?.as_str());
+        }
+        certchain_str
+    };
+    Ok(certchain)
 }

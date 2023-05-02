@@ -73,21 +73,6 @@ fn create_maa_test_request() -> String {
 
 const TEST_REQUEST : &str = include_str!("../test/request.json");
 
-fn amd_kds_fetch_chain(snp_report: &AttestationReport) -> Result<String, Box<dyn std::error::Error>> {
-    let certchain = {
-        let certchain = amd_kds::get_cert_chain()?;
-        let vcek: amd_kds::Vcek = amd_kds::get_vcek(&snp_report)?;
-        // convert X509 to PEM string
-        let mut certchain_str = String::new();
-        for cert in [vcek.0, certchain.ask, certchain.ark] {
-            let v = cert.to_pem()?;
-            certchain_str.push_str(String::from_utf8(v)?.as_str());
-        }
-        certchain_str
-    };
-    Ok(certchain)
-}
-
 fn attest_snp(reportdata: &str) -> Result<Response, Box<dyn std::error::Error>> {
     let mut hasher = Sha256::new();
     hasher.update(reportdata.as_bytes());
@@ -108,7 +93,7 @@ fn attest_snp(reportdata: &str) -> Result<Response, Box<dyn std::error::Error>> 
     let snp_report = snp_report_res?;
     let certchain = std::fs::read_to_string(sev::cached_chain::home().unwrap()).or_else(|_| {
         let path = sev::cached_chain::home().unwrap();
-        match amd_kds_fetch_chain(&snp_report) {
+        match amd_kds::fetch_vcek_chain(&snp_report) {
             Ok(certchain) => {
                 let mut file = std::fs::File::create(path.clone()).context(format!("create {}", path.display()))?;
                 file.write_all(certchain.as_bytes())?;
