@@ -6,9 +6,7 @@ use std::collections::HashMap;
 use std::io::prelude::*;
 use reqwest::blocking::Response;
 use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
-use serde_with::base64::{Base64, UrlSafe};
-use serde_with::formats::{Unpadded};
+
 use sev::firmware::host::types::Indeterminate::{Known, Unknown};
 use sev::firmware::guest::types::AttestationReport;
 use base64::{Engine as _};
@@ -18,43 +16,12 @@ use sha2::{Sha256, Digest};
 mod amd_kds;
 
 const MAA_URL: &str = "https://maajepio.eus.attest.azure.net";
+
 mod maa;
 
-#[allow(non_snake_case)]
-#[serde_as]
-#[derive(Serialize, Debug)]
-struct MAASnpReport {
-    SnpReport : String,
-    #[serde_as(as = "Base64<UrlSafe, Unpadded>")]
-    VcekCertChain : String,
-}
+use maa::*;
 
-#[derive(Serialize, Debug)]
-enum MAARuntimeDataType {
-    JSON,
-    Binary,
-}
-
-#[allow(non_snake_case)]
-#[serde_as]
-#[derive(Serialize, Debug)]
-struct MAARuntimeData {
-    #[serde_as(as = "Base64<UrlSafe, Unpadded>")]
-    data: String,
-    dataType: MAARuntimeDataType,
-}
-
-#[allow(non_snake_case)]
-#[serde_as]
-#[derive(Serialize, Debug)]
-struct MAASnpAttestRequest {
-    #[serde_as(as = "Base64<UrlSafe, Unpadded>")]
-    report: String,
-    runtimeData: MAARuntimeData,
-    nonce: String,
-}
-
-fn attest_snp(reportdata: &str) -> Result<Response, Box<dyn std::error::Error>> {
+fn attest_snp(maa : &MAA, reportdata: &str) -> Result<String, Box<dyn std::error::Error>> {
     let mut hasher = Sha256::new();
     hasher.update(reportdata.as_bytes());
     let hash = hasher.finalize();
@@ -96,29 +63,19 @@ fn attest_snp(reportdata: &str) -> Result<Response, Box<dyn std::error::Error>> 
         },
         nonce: "nonce".to_string(),
     };
-    let client = reqwest::blocking::Client::new();
-    let resp = client
-        .post(MAA_URL.to_string() + "/attest/SevSnpVm?api-version=2022-08-01")
-        .header("Content-Type", "application/json")
-        .json(&maa_req)
-        .send()?;
-    Ok(resp)
+    maa.attest_sev_snp_vm(maa_req)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>>{
     let maa = maa::MAA::new_verifier(MAA_URL)?;
-    let resp = attest_snp("{\"runtimedata\": 1}")?;
-    println!("resp: {:?}", resp.status());
-    let body = resp.json::<HashMap<String, String>>()?;
-    println!("resp: {}", serde_json::to_value(&body)?);
-    let token = body.get("token").unwrap();
+    let token = attest_snp(&maa, "{\"runtimedata\": 1}")?;
     let header = jsonwebtoken::decode_header(&token)?;
     println!("token: {}", serde_json::to_value(&header)?);
     let kid = header.kid.unwrap();
     let cert = maa.find(&kid).unwrap();
     let alg = cert.common.algorithm.ok_or(anyhow!("Get jwk alg failed"))?;
     let dkey = DecodingKey::from_jwk(cert)?;
-    let token = decode::<serde_json::Value>(token, &dkey, &Validation::new(alg))?;
+    let token = decode::<serde_json::Value>(&token, &dkey, &Validation::new(alg))?;
     println!("token: {}", serde_json::to_string(&token.claims)?);
     Ok(())
 }
@@ -130,7 +87,7 @@ mod tests {
 
     const TEST_REQUEST : &str = include_str!("../test/request.json");
 
-    fn create_maa_test_request() -> String {
+    fn create_maa_test_request() -> MAASnpAttestRequest {
         let report = MAASnpReport{
                 SnpReport: include_str!("../test/SnpReport").to_string(),
                 VcekCertChain: include_str!("../test/VcekCertChain").to_string(),
@@ -144,16 +101,15 @@ mod tests {
             },
             nonce: "nonce".to_string(),
         };
-        serde_json::to_string(&request).unwrap()
+        request
     }
     const SHARED_MAA_URL: &str = "https://sharedeus2.eus2.attest.azure.net";
 
     #[test]
     fn test_attest_and_verify() -> Result<(), Box<dyn std::error::Error>> {
         let maa = maa::MAA::new_verifier(SHARED_MAA_URL)?;
-        let endpoint = "/attest/SevSnpVm?api-version=2022-08-01";
         let req = create_maa_test_request();
-        let token = maa.raw_request(endpoint, &req)?;
+        let token = maa.attest_sev_snp_vm(req)?;
         println!("token: {}", token);
         let token_data = maa.verify::<serde_json::Value>(&token)?;
         println!("token_data: {}", serde_json::to_string_pretty(&token_data.claims)?);

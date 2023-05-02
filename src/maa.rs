@@ -3,12 +3,49 @@ use jsonwebtoken::{TokenData, DecodingKey, decode, Validation};
 use jsonwebtoken::jwk::Jwk;
 use reqwest;
 use serde::de::DeserializeOwned;
+use serde_with::serde_as;
+use serde_with::base64::{Base64, UrlSafe};
+use serde_with::formats::{Unpadded};
 use std::collections::HashMap;
 use std::io::prelude;
 use jsonwebtoken::jwk::JwkSet;
 use serde::{Deserialize, Serialize};
 use base64::{Engine as _};
 use base64;
+
+#[allow(non_snake_case)]
+#[serde_as]
+#[derive(Serialize, Debug)]
+pub struct MAASnpReport {
+    pub SnpReport : String,
+    #[serde_as(as = "Base64<UrlSafe, Unpadded>")]
+    pub VcekCertChain : String,
+}
+
+#[derive(Serialize, Debug)]
+pub enum MAARuntimeDataType {
+    JSON,
+    Binary,
+}
+
+#[allow(non_snake_case)]
+#[serde_as]
+#[derive(Serialize, Debug)]
+pub struct MAARuntimeData {
+    #[serde_as(as = "Base64<UrlSafe, Unpadded>")]
+    pub data: String,
+    pub dataType: MAARuntimeDataType,
+}
+
+#[allow(non_snake_case)]
+#[serde_as]
+#[derive(Serialize, Debug)]
+pub struct MAASnpAttestRequest {
+    #[serde_as(as = "Base64<UrlSafe, Unpadded>")]
+    pub report: String,
+    pub runtimeData: MAARuntimeData,
+    pub nonce: String,
+}
 
 // MAA provides a JWK which is missing some fields for interoperability
 #[derive(Deserialize, Debug, Serialize)]
@@ -48,6 +85,12 @@ impl MAA {
 
     pub fn find(&self, kid: &str) -> Option<&Jwk> {
         self.certs.as_ref().map(|certs| certs.find(kid)).flatten()
+    }
+
+    pub fn attest_sev_snp_vm(&self, maasnpreq: MAASnpAttestRequest) -> Result<String, Box<dyn std::error::Error>> {
+        let body = serde_json::to_string(&maasnpreq)?;
+        let token = self.raw_request("/attest/SevSnpVm?api-version=2022-08-01", &body)?;
+        Ok(token)
     }
 
     pub fn raw_request(&self, path: &str, body: &str) -> Result<String, Box<dyn std::error::Error>> {
