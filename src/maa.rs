@@ -49,7 +49,11 @@ impl MAA {
 }
 
 fn fetch_jwks_uri(url: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let resp = reqwest::blocking::get(url.to_string() + "/.well-known/openid-configuration")?;
+    let url = url.to_string() + "/.well-known/openid-configuration";
+    let resp = reqwest::blocking::get(url)?;
+    if !resp.status().is_success() {
+        return Err(Box::from(anyhow!("HTTP error {:?}", resp)));
+    }
     let config = resp.json::<serde_json::Value>()?;
     let jwks_uri = config["jwks_uri"].as_str().ok_or(anyhow!("jwks_uri not found"))?;
     Ok(jwks_uri.to_string())
@@ -58,6 +62,9 @@ fn fetch_jwks_uri(url: &str) -> Result<String, Box<dyn std::error::Error>> {
 fn fetch_cert_set(url: &str) -> Result<JwkSet, Box<dyn std::error::Error>> {
     let jwks_uri = fetch_jwks_uri(url)?;
     let resp = reqwest::blocking::get(jwks_uri)?;
+    if !resp.status().is_success() {
+        return Err(Box::from(anyhow!("HTTP error {:?}", resp)));
+    }
     let certs : MAACerts = resp.json()?;
     let mut jwkset = Vec::<Jwk>::default();
     for mut cert in certs.keys.into_iter() {
