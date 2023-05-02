@@ -27,18 +27,24 @@ struct MAACerts {
 
 // Microsoft Azure Attestation wrapper
 pub struct MAA {
-    certs: JwkSet,
+    certs: Option<JwkSet>,
     url: String,
 }
 
 impl MAA {
-    pub fn new(url: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    // a verifier can both attest (fetch the token) and verify (check the token)
+    pub fn new_verifier(url: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let certs = fetch_cert_set(url)?;
-        Ok(Self{ certs, url: url.to_string()})
+        Ok(Self{ certs: Some(certs), url: url.to_string()})
+    }
+
+    // can be used to fetch an MAA token as attestation evidence
+    pub fn new_attester(url: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(Self{ certs: None, url: url.to_string()})
     }
 
     pub fn find(&self, kid: &str) -> Option<&Jwk> {
-        self.certs.find(kid)
+        self.certs.as_ref().map(|certs| certs.find(kid)).flatten()
     }
 }
 

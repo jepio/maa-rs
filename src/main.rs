@@ -140,7 +140,7 @@ fn attest_snp(reportdata: &str) -> Result<Response, Box<dyn std::error::Error>> 
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>>{
-    let maa = maa::MAA::new(MAA_URL)?;
+    let maa = maa::MAA::new_verifier(MAA_URL)?;
     let resp = attest_snp("{\"runtimedata\": 1}")?;
     println!("resp: {:?}", resp.status());
     let body = resp.json::<HashMap<String, String>>()?;
