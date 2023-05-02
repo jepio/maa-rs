@@ -101,11 +101,11 @@ pub fn fetch_cached_vcek_chain(snp_report: &AttestationReport) -> Result<String,
         let path = sev::cached_chain::home().unwrap();
         match fetch_vcek_chain(&snp_report) {
             Ok(certchain) => {
-                let mut file = std::fs::File::create(path.clone()).context(format!("create {}", path.display()))?;
+                let mut file = std::fs::File::create(path.clone()).context(format!("create {} (run mkdir manually)", path.display()))?;
                 file.write_all(certchain.as_bytes())?;
                 Ok(certchain)
             },
-            Err(e) => Err(anyhow!(format!("failed to write {}: {:?}; mkdir the directory manually", path.display(), e))),
+            Err(e) => Err(anyhow!(format!("failed to fetch vcek {:?}", e))),
         }
     })?;
     Ok(certchain)
