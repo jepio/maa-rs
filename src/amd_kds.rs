@@ -1,9 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use anyhow::{anyhow, Context};
 use openssl::x509::X509;
 use sev::firmware::guest::types::AttestationReport;
 use thiserror::Error;
+use std::io::prelude::*;
 
 const KDS_CERT_SITE: &str = "https://kdsintf.amd.com";
 const KDS_VCEK: &str = "/vcek/v1";
@@ -90,5 +92,21 @@ pub fn fetch_vcek_chain(snp_report: &AttestationReport) -> Result<String, Box<dy
         }
         certchain_str
     };
+    Ok(certchain)
+}
+
+pub fn fetch_cached_vcek_chain(snp_report: &AttestationReport) -> Result<String, Box<dyn std::error::Error>> {
+    let certchain = std::fs::read_to_string(sev::cached_chain::home().unwrap());
+    let certchain = certchain.or_else(|_| {
+        let path = sev::cached_chain::home().unwrap();
+        match fetch_vcek_chain(&snp_report) {
+            Ok(certchain) => {
+                let mut file = std::fs::File::create(path.clone()).context(format!("create {}", path.display()))?;
+                file.write_all(certchain.as_bytes())?;
+                Ok(certchain)
+            },
+            Err(e) => Err(anyhow!(format!("failed to write {}: {:?}; mkdir the directory manually", path.display(), e))),
+        }
+    })?;
     Ok(certchain)
 }

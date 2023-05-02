@@ -3,7 +3,7 @@
 use anyhow::{Context, anyhow};
 use jsonwebtoken::{decode, Validation, Algorithm, DecodingKey};
 use std::collections::HashMap;
-use std::io::prelude::*;
+
 use reqwest::blocking::Response;
 use serde::{Deserialize, Serialize};
 
@@ -39,17 +39,7 @@ fn attest_snp(maa : &MAA, reportdata: &str) -> Result<String, Box<dyn std::error
         }
     );
     let snp_report = snp_report_res?;
-    let certchain = std::fs::read_to_string(sev::cached_chain::home().unwrap()).or_else(|_| {
-        let path = sev::cached_chain::home().unwrap();
-        match amd_kds::fetch_vcek_chain(&snp_report) {
-            Ok(certchain) => {
-                let mut file = std::fs::File::create(path.clone()).context(format!("create {}", path.display()))?;
-                file.write_all(certchain.as_bytes())?;
-                Ok(certchain)
-            },
-            Err(e) => Err(anyhow!(format!("failed to write {}: {:?}", path.display(), e))),
-        }
-    })?;
+    let certchain = amd_kds::fetch_cached_vcek_chain(&snp_report)?;
     let snp_report_str = bincode::serialize(&snp_report)?;
     let maasnpreport = MAASnpReport{
         SnpReport: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&snp_report_str),
