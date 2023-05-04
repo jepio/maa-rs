@@ -12,8 +12,6 @@ use std::fs;
 use base64::Engine as _;
 use jsonwebtoken::jwk::JwkSet;
 use serde::{Deserialize, Serialize};
-use sev::firmware::guest::types::AttestationReport;
-use sev::firmware::host::types::Indeterminate::{Known, Unknown};
 use sha2::{Digest, Sha256};
 
 #[allow(non_snake_case)]
@@ -91,8 +89,10 @@ impl MAA {
         url: &str,
         filename: &str,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let certs = fs::read_to_string(filename).context(format!("failed to read '{}'", filename))?;
-        let certs: MAACerts = serde_json::from_str(&certs).context(format!("failed to parse '{}'", filename))?;
+        let certs =
+            fs::read_to_string(filename).context(format!("failed to read '{}'", filename))?;
+        let certs: MAACerts =
+            serde_json::from_str(&certs).context(format!("failed to parse '{}'", filename))?;
         Ok(Self {
             certs: Some(certs.try_into()?),
             url: url.to_string(),
@@ -171,15 +171,7 @@ impl MAASnpReport {
         arr[..32].copy_from_slice(&hash[..]);
 
         let mut firmware = sev::firmware::guest::Firmware::open()?;
-        let snp_report_req = sev::firmware::guest::types::SnpReportReq::new(Some(arr), 0);
-        let snp_report_res = firmware.snp_get_report(None, snp_report_req);
-        let snp_report_res: Result<AttestationReport, Box<dyn std::error::Error>> = snp_report_res
-            .map_err(|e| match e {
-                Known(err) => Box::from(err),
-                Unknown => Box::from("Unknown error"),
-            });
-        let snp_report = snp_report_res?;
-
+        let snp_report = firmware.get_report(None, Some(arr), 0)?;
         let vcek_cert_chain = match vcek_cert_chain {
             Some(s) => Ok(s.to_string()),
             None => crate::amd_kds::fetch_cached_vcek_chain(&snp_report),
@@ -229,8 +221,7 @@ fn fetch_cert_set(url: &str) -> Result<JwkSet, Box<dyn std::error::Error>> {
         return Err(Box::from(anyhow!("HTTP error {:?}", resp)));
     }
     let certs: MAACerts = resp.json()?;
-    let jwkset = JwkSet::try_from(certs);
-    jwkset
+    JwkSet::try_from(certs)
 }
 
 impl TryFrom<MAACerts> for JwkSet {

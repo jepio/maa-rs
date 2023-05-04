@@ -3,7 +3,7 @@
 
 use anyhow::{anyhow, Context};
 use openssl::x509::X509;
-use sev::firmware::guest::types::AttestationReport;
+use sev::firmware::guest::AttestationReport;
 use std::io::prelude::*;
 use thiserror::Error;
 
