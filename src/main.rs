@@ -15,6 +15,18 @@ fn attest_snp(
     maa.attest_sev_snp_vm(maa_req)
 }
 
+fn attest_tdx(
+    maa: &MAA,
+    reportdata: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let maa_req = MAATdxAttestRequest::new(
+        MAARuntimeData::JSON {
+            data: reportdata.to_string(),
+        }
+    )?;
+    maa.attest_tdx_vm(maa_req)
+}
+
 const MAA_URL: &str = "https://maajepio.eus.attest.azure.net";
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let maa = MAA::new_verifier(MAA_URL)?;
@@ -58,6 +70,19 @@ mod tests {
         let token_data = maa.verify::<serde_json::Value>(&token)?;
         println!(
             "token_data: {}",
+            serde_json::to_string_pretty(&token_data.claims)?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_attest_and_verify_tdx() -> Result<(), Box<dyn std::error::Error>> {
+        let maa = MAA::new_verifier(SHARED_MAA_URL)?;
+        let token = attest_tdx(&maa, "{\"runtimedata\": 1}")?;
+        let token_data = maa.verify::<serde_json::Value>(&token)?;
+        println!(
+            "header: {}\nclaims: {}",
+            serde_json::to_string_pretty(&token_data.header)?,
             serde_json::to_string_pretty(&token_data.claims)?
         );
         Ok(())

@@ -49,6 +49,15 @@ pub struct MAASnpAttestRequest {
     pub nonce: String,
 }
 
+#[allow(non_snake_case)]
+#[serde_as]
+#[derive(Serialize, Debug)]
+pub struct MAATdxAttestRequest {
+    #[serde_as(as = "Base64<UrlSafe, Unpadded>")]
+    pub quote: Vec<u8>,
+    pub runtimeData: MAARuntimeData,
+}
+
 // MAA provides a JWK which is missing some fields for interoperability
 #[derive(Deserialize, Debug, Serialize)]
 struct MAAJwk {
@@ -117,6 +126,15 @@ impl MAA {
     ) -> Result<String, Box<dyn std::error::Error>> {
         let body = serde_json::to_string(&maasnpreq)?;
         let token = self.raw_request("/attest/SevSnpVm?api-version=2022-08-01", &body)?;
+        Ok(token)
+    }
+
+    pub fn attest_tdx_vm(
+        &self,
+        maatdxreq: MAATdxAttestRequest,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let body = serde_json::to_string(&maatdxreq)?;
+        let token = self.raw_request("/attest/TdxVm?api-version=2023-04-01-preview", &body)?;
         Ok(token)
     }
 
@@ -205,6 +223,18 @@ impl MAASnpAttestRequest {
     }
 }
 
+impl MAATdxAttestRequest {
+    pub fn new(
+        runtimedata: MAARuntimeData,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let quote = crate::az_tdx::make_quote(&runtimedata)?;
+        let maa_req = MAATdxAttestRequest {
+            quote: quote,
+            runtimeData: runtimedata,
+        };
+        Ok(maa_req)
+    }
+}
 fn fetch_jwks_uri(url: &str) -> Result<String, Box<dyn std::error::Error>> {
     let url = url.to_string() + "/.well-known/openid-configuration";
     let resp = reqwest::blocking::get(url)?;
