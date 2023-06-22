@@ -153,23 +153,27 @@ impl MAA {
     }
 }
 
+pub(crate) fn runtime_data_to_sha256(runtimedata: &MAARuntimeData) -> [u8; 64] {
+    let reportdata = match runtimedata {
+        MAARuntimeData::JSON { data } => data.as_bytes(),
+        MAARuntimeData::Binary { data } => &data[..],
+    };
+    let mut hasher = Sha256::new();
+    hasher.update(reportdata);
+    let hash = hasher.finalize();
+
+    let mut arr: [u8; 64] = [0; 64];
+    // set the first 32 bytes to the hash
+    arr[..32].copy_from_slice(&hash[..]);
+    arr
+}
+
 impl MAASnpReport {
     pub fn new(
         runtimedata: &MAARuntimeData,
         vcek_cert_chain: Option<&str>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let reportdata = match runtimedata {
-            MAARuntimeData::JSON { data } => data.as_bytes(),
-            MAARuntimeData::Binary { data } => &data[..],
-        };
-        let mut hasher = Sha256::new();
-        hasher.update(reportdata);
-        let hash = hasher.finalize();
-
-        let mut arr: [u8; 64] = [0; 64];
-        // set the first 32 bytes to the hash
-        arr[..32].copy_from_slice(&hash[..]);
-
+        let arr = runtime_data_to_sha256(runtimedata);
         let mut firmware = sev::firmware::guest::Firmware::open()?;
         let snp_report = firmware.get_report(None, Some(arr), 0)?;
         let vcek_cert_chain = match vcek_cert_chain {
