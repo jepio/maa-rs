@@ -1,2 +1,2 @@
 mod amd_kds;
-mod maa;
+pub mod maa;

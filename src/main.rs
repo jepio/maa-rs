@@ -1,6 +1,4 @@
-mod amd_kds;
-mod maa;
-use maa::*;
+use maa_attest::maa::*;
 
 fn attest_snp(
     maa: &MAA,
@@ -19,7 +17,7 @@ fn attest_snp(
 
 const MAA_URL: &str = "https://maajepio.eus.attest.azure.net";
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let maa = maa::MAA::new_verifier(MAA_URL)?;
+    let maa = MAA::new_verifier(MAA_URL)?;
     let token = attest_snp(&maa, "{\"runtimedata\": 1}", "nonnce")?;
     let header = jsonwebtoken::decode_header(&token)?;
     println!("token: {}", serde_json::to_value(header)?);
@@ -53,7 +51,7 @@ mod tests {
 
     #[test]
     fn test_attest_and_verify() -> Result<(), Box<dyn std::error::Error>> {
-        let maa = maa::MAA::new_verifier(SHARED_MAA_URL)?;
+        let maa = MAA::new_verifier(SHARED_MAA_URL)?;
         let req = create_maa_test_request();
         let token = maa.attest_sev_snp_vm(req)?;
         println!("token: {}", token);

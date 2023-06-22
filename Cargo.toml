@@ -1,5 +1,5 @@
 [package]
-name = "maa-snp-attest"
+name = "maa-attest"
 version = "0.1.0"
 edition = "2021"
 
