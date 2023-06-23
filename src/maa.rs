@@ -150,7 +150,7 @@ impl MAA {
             .body(body.to_string())
             .send()?;
         if !resp.status().is_success() {
-            return Err(Box::from(anyhow!("HTTP error {:?}", resp)));
+            return Err(Box::from(anyhow!("HTTP error {}: {}", resp.status(), resp.text()?)));
         }
         let resp = resp.json::<HashMap<String, String>>()?;
         let token = resp.get("token").ok_or(anyhow!("token not found"))?;
