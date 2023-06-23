@@ -31,10 +31,9 @@ const MAA_URL: &str = "https://maajepio.eus.attest.azure.net";
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let maa = MAA::new_verifier(MAA_URL)?;
     let token = attest_snp(&maa, "{\"runtimedata\": 1}", "nonnce")?;
-    let header = jsonwebtoken::decode_header(&token)?;
-    println!("token: {}", serde_json::to_value(header)?);
     let token_data = maa.verify::<serde_json::Value>(&token)?;
-    println!("token_data: {}", serde_json::to_string(&token_data.claims)?);
+    println!("header: {}", serde_json::to_string_pretty(&token_data.header)?);
+    println!("token_data: {}", serde_json::to_string_pretty(&token_data.claims)?);
     Ok(())
 }
 
