@@ -15,15 +15,10 @@ fn attest_snp(
     maa.attest_sev_snp_vm(maa_req)
 }
 
-fn attest_tdx(
-    maa: &MAA,
-    reportdata: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let maa_req = MAATdxAttestRequest::new(
-        MAARuntimeData::JSON {
-            data: reportdata.to_string(),
-        }
-    )?;
+fn attest_tdx(maa: &MAA, reportdata: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let maa_req = MAATdxAttestRequest::new(MAARuntimeData::JSON {
+        data: reportdata.to_string(),
+    })?;
     maa.attest_tdx_vm(maa_req)
 }
 
@@ -32,8 +27,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let maa = MAA::new_verifier(MAA_URL)?;
     let token = attest_snp(&maa, "{\"runtimedata\": 1}", "nonnce")?;
     let token_data = maa.verify::<serde_json::Value>(&token)?;
-    println!("header: {}", serde_json::to_string_pretty(&token_data.header)?);
-    println!("token_data: {}", serde_json::to_string_pretty(&token_data.claims)?);
+    println!(
+        "header: {}",
+        serde_json::to_string_pretty(&token_data.header)?
+    );
+    println!(
+        "token_data: {}",
+        serde_json::to_string_pretty(&token_data.claims)?
+    );
     Ok(())
 }
 

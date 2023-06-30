@@ -150,7 +150,11 @@ impl MAA {
             .body(body.to_string())
             .send()?;
         if !resp.status().is_success() {
-            return Err(Box::from(anyhow!("HTTP error {}: {}", resp.status(), resp.text()?)));
+            return Err(Box::from(anyhow!(
+                "HTTP error {}: {}",
+                resp.status(),
+                resp.text()?
+            )));
         }
         let resp = resp.json::<HashMap<String, String>>()?;
         let token = resp.get("token").ok_or(anyhow!("token not found"))?;
@@ -192,11 +196,12 @@ impl MAASnpReport {
         vcek_cert_chain: Option<&str>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let arr = runtime_data_to_sha256(runtimedata);
-        let mut firmware = sev::firmware::guest::Firmware::open()?;
-        let snp_report = firmware.get_report(None, Some(arr), 0)?;
+        let mut firmware = sev::firmware::guest::Firmware::open().context("open /dev/sev-guest")?;
+        let (snp_report, certs) = firmware.get_ext_report(None, Some(arr), Some(0))?;
+        let certs = if certs.len() > 0 { Some(&certs) } else { None };
         let vcek_cert_chain = match vcek_cert_chain {
             Some(s) => Ok(s.to_string()),
-            None => crate::amd_kds::fetch_cached_vcek_chain(&snp_report),
+            None => crate::amd_kds::fetch_cached_vcek_chain(&snp_report, certs),
         }?;
         let snp_report_str = bincode::serialize(&snp_report)?;
         let maasnpreport = MAASnpReport {
@@ -224,9 +229,7 @@ impl MAASnpAttestRequest {
 }
 
 impl MAATdxAttestRequest {
-    pub fn new(
-        runtimedata: MAARuntimeData,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(runtimedata: MAARuntimeData) -> Result<Self, Box<dyn std::error::Error>> {
         let quote = crate::az_tdx::make_quote(&runtimedata)?;
         let maa_req = MAATdxAttestRequest {
             quote: quote,
