@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, Error};
 use openssl::x509::X509;
 use sev::firmware::guest::AttestationReport;
 use std::io::prelude::*;
@@ -80,28 +80,21 @@ fn get_vcek(report: &AttestationReport) -> Result<Vcek, AmdKdsError> {
     Ok(vcek)
 }
 
-pub fn fetch_vcek_chain(
-    snp_report: &AttestationReport,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let certchain = {
-        let certchain = get_cert_chain()?;
-        let vcek = get_vcek(snp_report)?;
-        // convert X509 to PEM string
-        let mut certchain_str = String::new();
-        for cert in [vcek.0, certchain.ask, certchain.ark] {
-            let v = cert.to_pem()?;
-            certchain_str.push_str(String::from_utf8(v)?.as_str());
-        }
-        certchain_str
-    };
-    Ok(certchain)
+pub fn fetch_vcek_chain(snp_report: &AttestationReport) -> Result<String, Error> {
+    let certchain = get_cert_chain()?;
+    let vcek = get_vcek(snp_report)?;
+    // convert X509 to PEM string
+    let mut certchain_str = String::new();
+    for cert in [vcek.0, certchain.ask, certchain.ark] {
+        let v = cert.to_pem()?;
+        certchain_str.push_str(String::from_utf8(v)?.as_str());
+    }
+    Ok(certchain_str)
 }
 
-pub fn fetch_cached_vcek_chain(
-    snp_report: &AttestationReport,
-) -> Result<String, Box<dyn std::error::Error>> {
+pub fn fetch_cached_vcek_chain(snp_report: &AttestationReport) -> Result<String, Error> {
     let certchain = std::fs::read_to_string(sev::cached_chain::home().unwrap());
-    let certchain = certchain.or_else(|_| {
+    certchain.or_else(|_| {
         let path = sev::cached_chain::home().unwrap();
         match fetch_vcek_chain(snp_report) {
             Ok(certchain) => {
@@ -110,8 +103,7 @@ pub fn fetch_cached_vcek_chain(
                 file.write_all(certchain.as_bytes())?;
                 Ok(certchain)
             }
-            Err(e) => Err(anyhow!(format!("failed to fetch vcek {:?}", e))),
+            Err(e) => Err(e.context("failed to fetch vcek")),
         }
-    })?;
-    Ok(certchain)
+    })
 }
