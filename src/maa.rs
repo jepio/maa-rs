@@ -196,11 +196,12 @@ impl MAASnpReport {
         vcek_cert_chain: Option<&str>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let arr = runtime_data_to_sha256(runtimedata);
-        let mut firmware = sev::firmware::guest::Firmware::open()?;
-        let snp_report = firmware.get_report(None, Some(arr), Some(0))?;
+        let mut firmware = sev::firmware::guest::Firmware::open().context("open /dev/sev-guest")?;
+        let (snp_report, certs) = firmware.get_ext_report(None, Some(arr), Some(0))?;
+        let certs = if certs.len() > 0 { Some(&certs) } else { None };
         let vcek_cert_chain = match vcek_cert_chain {
             Some(s) => Ok(s.to_string()),
-            None => crate::amd_kds::fetch_cached_vcek_chain(&snp_report),
+            None => crate::amd_kds::fetch_cached_vcek_chain(&snp_report, certs),
         }?;
         let snp_report_str = bincode::serialize(&snp_report)?;
         let maasnpreport = MAASnpReport {
