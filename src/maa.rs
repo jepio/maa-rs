@@ -150,7 +150,11 @@ impl MAA {
             .body(body.to_string())
             .send()?;
         if !resp.status().is_success() {
-            return Err(Box::from(anyhow!("HTTP error {}: {}", resp.status(), resp.text()?)));
+            return Err(Box::from(anyhow!(
+                "HTTP error {}: {}",
+                resp.status(),
+                resp.text()?
+            )));
         }
         let resp = resp.json::<HashMap<String, String>>()?;
         let token = resp.get("token").ok_or(anyhow!("token not found"))?;
@@ -224,9 +228,7 @@ impl MAASnpAttestRequest {
 }
 
 impl MAATdxAttestRequest {
-    pub fn new(
-        runtimedata: MAARuntimeData,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(runtimedata: MAARuntimeData) -> Result<Self, Box<dyn std::error::Error>> {
         let quote = crate::az_tdx::make_quote(&runtimedata)?;
         let maa_req = MAATdxAttestRequest {
             quote: quote,

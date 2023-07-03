@@ -48,10 +48,13 @@ impl Default for TdxReportReq {
 
 ioctl!(readwrite tdx_cmd_get_report0 with b'T', 0x01; TdxReportReq);
 
-const IMDS_TDQUOTE_ENDPOINT : &str = "http://169.254.169.254/acc/tdquote";
+const IMDS_TDQUOTE_ENDPOINT: &str = "http://169.254.169.254/acc/tdquote";
 
 fn get_tdx_evidence(report_data: [u8; 64]) -> Result<Vec<u8>> {
-    let file = OpenOptions::new().write(true).open("/dev/tdx_guest").context("error opening tdx_guest device")?;
+    let file = OpenOptions::new()
+        .write(true)
+        .open("/dev/tdx_guest")
+        .context("error opening tdx_guest device")?;
     let fd = file.as_raw_fd();
     let mut tdx_req = TdxReportReq::new(report_data);
     unsafe {
